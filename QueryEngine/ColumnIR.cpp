@@ -83,7 +83,9 @@ int adjusted_range_table_index(const Analyzer::ColumnVar* col_var) {
 std::vector<llvm::Value*> Executor::codegen(const Analyzer::ColumnVar* col_var,
                                             const bool fetch_column,
                                             const CompilationOptions& co) {
-  if (!cgen_state_->outer_join_cond_lv_ || col_var->get_rte_idx() == 0) {
+  if (col_var->get_rte_idx() == 0 || (!cgen_state_->outer_join_cond_lv_ &&
+                                      (cgen_state_->outer_join_match_found_per_level_.empty() ||
+                                       !cgen_state_->outer_join_match_found_per_level_[col_var->get_rte_idx() - 1]))) {
     return codegenColVar(col_var, fetch_column, co);
   }
   return codegenOuterJoinNullPlaceholder(col_var, fetch_column, co);
@@ -306,7 +308,14 @@ std::vector<llvm::Value*> Executor::codegenOuterJoinNullPlaceholder(const Analyz
       llvm::BasicBlock::Create(cgen_state_->context_, "outer_join_nulls", cgen_state_->row_func_);
   const auto phi_bb = llvm::BasicBlock::Create(cgen_state_->context_, "outer_join_phi", cgen_state_->row_func_);
   cgen_state_->ir_builder_.SetInsertPoint(bb);
-  cgen_state_->ir_builder_.CreateCondBr(cgen_state_->outer_join_cond_lv_, outer_join_args_bb, outer_join_nulls_bb);
+  CHECK_GE(col_var->get_rte_idx(), 1);
+  CHECK_LE(static_cast<size_t>(col_var->get_rte_idx()), cgen_state_->outer_join_match_found_per_level_.size());
+  CHECK_NE(!!cgen_state_->outer_join_cond_lv_,
+           !!cgen_state_->outer_join_match_found_per_level_[col_var->get_rte_idx() - 1]);
+  const auto outer_join_match_lv = cgen_state_->outer_join_cond_lv_
+                                       ? cgen_state_->outer_join_cond_lv_
+                                       : cgen_state_->outer_join_match_found_per_level_[col_var->get_rte_idx() - 1];
+  cgen_state_->ir_builder_.CreateCondBr(outer_join_match_lv, outer_join_args_bb, outer_join_nulls_bb);
   const auto back_from_outer_join_bb =
       llvm::BasicBlock::Create(cgen_state_->context_, "back_from_outer_join", cgen_state_->row_func_);
   cgen_state_->ir_builder_.SetInsertPoint(outer_join_args_bb);

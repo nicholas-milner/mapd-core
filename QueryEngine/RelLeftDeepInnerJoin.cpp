@@ -34,6 +34,8 @@ RelLeftDeepInnerJoin::RelLeftDeepInnerJoin(const std::shared_ptr<RelFilter>& fil
   bool is_notnull = true;
   // Accumulate join conditions from the (explicit) joins themselves and
   // from the filter node at the root of the left-deep tree pattern.
+  outer_conditions_per_level_.resize(original_joins.size());
+  size_t nesting_level{0};
   for (const auto& original_join : original_joins) {
     const auto condition_true = dynamic_cast<const RexLiteral*>(original_join->getCondition());
     if (!condition_true || !condition_true->getVal<bool>()) {
@@ -41,8 +43,21 @@ RelLeftDeepInnerJoin::RelLeftDeepInnerJoin(const std::shared_ptr<RelFilter>& fil
         is_notnull =
             is_notnull && dynamic_cast<const RexOperator*>(original_join->getCondition())->getType().get_notnull();
       }
-      if (original_join->getCondition()) {
-        operands.emplace_back(original_join->getAndReleaseCondition());
+      switch (original_join->getJoinType()) {
+        case JoinType::INNER: {
+          if (original_join->getCondition()) {
+            operands.emplace_back(original_join->getAndReleaseCondition());
+          }
+          break;
+        }
+        case JoinType::LEFT: {
+          if (original_join->getCondition()) {
+            outer_conditions_per_level_[nesting_level++].reset(original_join->getAndReleaseCondition());
+          }
+          break;
+        }
+        default:
+          CHECK(false);
       }
     }
   }
@@ -66,8 +81,13 @@ RelLeftDeepInnerJoin::RelLeftDeepInnerJoin(const std::shared_ptr<RelFilter>& fil
   }
 }
 
-const RexScalar* RelLeftDeepInnerJoin::getCondition() const {
+const RexScalar* RelLeftDeepInnerJoin::getInnerCondition() const {
   return condition_.get();
+}
+
+const RexScalar* RelLeftDeepInnerJoin::getOuterCondition(const size_t nesting_level) const {
+  CHECK_LT(nesting_level, outer_conditions_per_level_.size());
+  return outer_conditions_per_level_[nesting_level].get();
 }
 
 std::string RelLeftDeepInnerJoin::toString() const {
@@ -109,10 +129,12 @@ namespace {
 
 bool is_left_deep_join_helper(const RelJoin* join) {
   CHECK(join);
+#if 1
   // Only inner joins for now.
   if (join->getJoinType() != JoinType::INNER) {
     return false;
   }
+#endif
   CHECK_EQ(size_t(2), join->inputCount());
   if (dynamic_cast<const RelJoin*>(join->getInput(1))) {
     // Not left-deep.
@@ -205,7 +227,7 @@ std::shared_ptr<const RelAlgNode> get_left_deep_join_root(const std::shared_ptr<
     if (!join) {
       return nullptr;
     }
-    if (is_left_deep_join_helper(join)) {
+    if (is_left_deep_join_helper(join) && join->getJoinType() == JoinType::INNER) {
       return node;
     }
   }
@@ -232,7 +254,14 @@ void create_left_deep_join(std::vector<std::shared_ptr<RelAlgNode>>& nodes) {
     if (!left_deep_join) {
       continue;
     }
-    rebind_inputs_from_left_deep_join(left_deep_join->getCondition(), left_deep_join.get());
+    CHECK_GE(left_deep_join->inputCount(), size_t(2));
+    for (size_t i = 0; i < left_deep_join->inputCount() - 1; ++i) {
+      const auto outer_condition = left_deep_join->getOuterCondition(i);
+      if (outer_condition) {
+        rebind_inputs_from_left_deep_join(outer_condition, left_deep_join.get());
+      }
+    }
+    rebind_inputs_from_left_deep_join(left_deep_join->getInnerCondition(), left_deep_join.get());
     for (auto& node : nodes) {
       if (node && node->hasInput(old_root.get())) {
         node->replaceInput(left_deep_join_candidate, left_deep_join);

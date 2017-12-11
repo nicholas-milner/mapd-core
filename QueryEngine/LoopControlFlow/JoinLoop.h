@@ -22,6 +22,7 @@
 #include <llvm/IR/Value.h>
 
 #include "../IRCodegenUtils.h"
+#include "../../Shared/sqldefs.h"
 
 #include <functional>
 #include <vector>
@@ -47,7 +48,9 @@ struct JoinLoopDomain {
 class JoinLoop {
  public:
   JoinLoop(const JoinLoopKind,
+           const JoinType,
            const std::function<JoinLoopDomain(const std::vector<llvm::Value*>&)>&,
+           const std::function<llvm::Value*(const std::vector<llvm::Value*>&)>&,
            const std::string& name = "");
 
   static llvm::BasicBlock* codegen(
@@ -59,6 +62,8 @@ class JoinLoop {
 
  private:
   const JoinLoopKind kind_;
+  const JoinType type_;
   const std::function<JoinLoopDomain(const std::vector<llvm::Value*>&)> iteration_domain_codegen_;
+  const std::function<llvm::Value*(const std::vector<llvm::Value*>&)> outer_condition_match_;
   const std::string name_;
 };
