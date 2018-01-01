@@ -129,12 +129,6 @@ namespace {
 
 bool is_left_deep_join_helper(const RelJoin* join) {
   CHECK(join);
-#if 1
-  // Only inner joins for now.
-  if (join->getJoinType() != JoinType::INNER) {
-    return false;
-  }
-#endif
   CHECK_EQ(size_t(2), join->inputCount());
   if (dynamic_cast<const RelJoin*>(join->getInput(1))) {
     // Not left-deep.
