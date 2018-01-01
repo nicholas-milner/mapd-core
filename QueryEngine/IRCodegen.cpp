@@ -327,6 +327,7 @@ std::vector<JoinLoop> Executor::buildJoinLoops(RelAlgExecutionUnit& ra_exe_unit,
             nullptr,
             nullptr);
       } else {
+        CHECK(current_level_join_conditions.type != JoinType::LEFT);
         join_loops.emplace_back(JoinLoopKind::Set,
                                 current_level_join_conditions.type,
                                 [this, current_hash_table_idx, level_idx, current_level_hash_table, &co](
