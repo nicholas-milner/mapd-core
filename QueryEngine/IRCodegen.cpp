@@ -324,6 +324,7 @@ std::vector<JoinLoop> Executor::buildJoinLoops(RelAlgExecutionUnit& ra_exe_unit,
               }
               return domain;
             },
+            nullptr,
             nullptr);
       } else {
         join_loops.emplace_back(JoinLoopKind::Set,
@@ -338,6 +339,7 @@ std::vector<JoinLoop> Executor::buildJoinLoops(RelAlgExecutionUnit& ra_exe_unit,
                                   domain.element_count = matching_set.count;
                                   return domain;
                                 },
+                                nullptr,
                                 nullptr);
       }
       ++current_hash_table_idx;
@@ -347,14 +349,21 @@ std::vector<JoinLoop> Executor::buildJoinLoops(RelAlgExecutionUnit& ra_exe_unit,
                                         : boost::algorithm::join(fail_reasons, " | ");
       check_if_loop_join_is_allowed(ra_exe_unit, eo, query_infos, level_idx, fail_reasons_str);
       const auto outer_join_condition_cb =
-          [this, &co, &current_level_join_conditions](const std::vector<llvm::Value*>& prev_iters) {
-            llvm::Value* left_join_cond = llvm::ConstantInt::get(get_int_type(1, cgen_state_->context_), true);
+          [this, level_idx, &co, &current_level_join_conditions](const std::vector<llvm::Value*>& prev_iters) {
+            FetchCacheAnchor anchor(cgen_state_.get());
+            addJoinLoopIterator(prev_iters, level_idx + 1);
+            llvm::Value* left_join_cond = ll_bool(true);
             for (auto expr : current_level_join_conditions.quals) {
               left_join_cond =
                   cgen_state_->ir_builder_.CreateAnd(left_join_cond, toBool(codegen(expr.get(), true, co).front()));
             }
             return left_join_cond;
           };
+      const auto found_outer_join_matches_cb = [this, level_idx](llvm::Value* found_outer_join_matches) {
+        CHECK_LT(level_idx, cgen_state_->outer_join_match_found_per_level_.size());
+        CHECK(!cgen_state_->outer_join_match_found_per_level_[level_idx]);
+        cgen_state_->outer_join_match_found_per_level_[level_idx] = found_outer_join_matches;
+      };
       join_loops.emplace_back(
           JoinLoopKind::UpperBound,
           current_level_join_conditions.type,
@@ -368,6 +377,9 @@ std::vector<JoinLoop> Executor::buildJoinLoops(RelAlgExecutionUnit& ra_exe_unit,
           },
           current_level_join_conditions.type == JoinType::LEFT
               ? std::function<llvm::Value*(const std::vector<llvm::Value*>&)>(outer_join_condition_cb)
+              : nullptr,
+          current_level_join_conditions.type == JoinType::LEFT
+              ? std::function<void(llvm::Value*)>(found_outer_join_matches_cb)
               : nullptr);
     }
   }
@@ -432,7 +444,9 @@ void Executor::addJoinLoopIterator(const std::vector<llvm::Value*>& prev_iters, 
   }
   CHECK(matching_row_index->getType()->isIntegerTy(64));
   const auto it_ok = cgen_state_->scan_idx_to_hash_pos_.emplace(level_idx, matching_row_index);
-  CHECK(it_ok.second);
+  if (!it_ok.second) {
+    CHECK_EQ(it_ok.first->second, matching_row_index);
+  }
 }
 
 void Executor::codegenJoinLoops(const std::vector<JoinLoop>& join_loops,

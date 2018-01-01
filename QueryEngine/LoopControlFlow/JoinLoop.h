@@ -51,6 +51,7 @@ class JoinLoop {
            const JoinType,
            const std::function<JoinLoopDomain(const std::vector<llvm::Value*>&)>&,
            const std::function<llvm::Value*(const std::vector<llvm::Value*>&)>&,
+           const std::function<void(llvm::Value*)>&,
            const std::string& name = "");
 
   static llvm::BasicBlock* codegen(
@@ -65,5 +66,6 @@ class JoinLoop {
   const JoinType type_;
   const std::function<JoinLoopDomain(const std::vector<llvm::Value*>&)> iteration_domain_codegen_;
   const std::function<llvm::Value*(const std::vector<llvm::Value*>&)> outer_condition_match_;
+  const std::function<void(llvm::Value*)> found_outer_matches_;
   const std::string name_;
 };
