@@ -12,8 +12,6 @@ else()
   include_directories("${CMAKE_CURRENT_SOURCE_DIR}/os")
 endif()
 
+add_library(token_completion_hints TokenCompletionHints.cpp)
 add_library(thrift_handler ${THRIFT_HANDLER_SOURCES})
-target_link_libraries(thrift_handler ${THRIFT_HANDLER_LIBS})
-
-add_executable(TokenCompletionHintsTest TokenCompletionHintsTest.cpp TokenCompletionHints.cpp)
-target_link_libraries(TokenCompletionHintsTest gtest mapd_thrift ${Boost_LIBRARIES})
+target_link_libraries(thrift_handler token_completion_hints ${THRIFT_HANDLER_LIBS})

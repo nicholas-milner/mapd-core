@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "TokenCompletionHints.h"
+#include "../ThriftHandler/TokenCompletionHints.h"
 
 #include <gtest/gtest.h>
 
